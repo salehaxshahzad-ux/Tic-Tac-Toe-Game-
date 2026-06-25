@@ -1,0 +1,500 @@
+#include <windows.h>
+#include <cstdlib>
+#include <ctime>
+#include <string>
+#include <sstream>
+#include <cmath>
+
+// ===== GLOBAL VARIABLES & GAME LOGIC =====
+char board[3][3] = {{'1','2','3'},{'4','5','6'},{'7','8','9'}}; 
+char turn = 'X'; 
+bool vsComputer = false; 
+int totalGames = 0, xWins = 0, oWins = 0, drawGames = 0; 
+bool gameActive = false; 
+
+// Track dynamic colors for elements
+COLORREF cellColors[3][3];
+COLORREF currentTextThemeColor = RGB(0, 240, 220); // Dynamic shifting label color
+
+// ===== GUI WINDOW HANDLES =====
+HWND hTitleText;
+HWND hStatusText;
+HWND hScoreText;
+
+// Main Menu Controls
+HWND hBtnStartGame, hBtnExitApp;
+
+// Sub Menu Controls
+HWND hBtnPvP, hBtnPvC, hBtnSubBack;
+
+// Game Controls
+HWND hGridButtons[3][3];
+HWND hBtnRestart, hBtnBackToMenu;
+
+// ===== THEME STYLING =====
+HBRUSH hBackBrush = CreateSolidBrush(RGB(24, 20, 32)); // Deep Velvet Night Background
+HFONT hFontLarge, hFontMedium;
+
+// Forward declarations
+void ResetGameGUI();
+void ComputerMoveGUI();
+bool CheckGameOverGUI();
+void ShowMainPage();
+void ShowSubPage();
+void ShowGamePage();
+void RandomizeTextTheme();
+
+// Helper to generate clear, visible, vibrant colors
+COLORREF GetRandomVibrantColor() {
+    int r = rand() % 130 + 125; 
+    int g = rand() % 130 + 125; 
+    int b = rand() % 130 + 125; 
+    return RGB(r, g, b);
+}
+
+void RandomizeTextTheme() {
+    currentTextThemeColor = GetRandomVibrantColor();
+    if (hTitleText) InvalidateRect(hTitleText, NULL, TRUE);
+    if (hStatusText) InvalidateRect(hStatusText, NULL, TRUE);
+    if (hScoreText) InvalidateRect(hScoreText, NULL, TRUE);
+}
+
+void ShowMainPage() {
+    RandomizeTextTheme();
+    
+    MoveWindow(hTitleText, 140, 35, 200, 50, TRUE);
+    SetWindowTextW(hTitleText, L"TIC TAC TOE");
+    
+    ShowWindow(hBtnStartGame, SW_SHOW);
+    ShowWindow(hBtnExitApp, SW_SHOW);
+    ShowWindow(hBtnPvP, SW_HIDE);
+    ShowWindow(hBtnPvC, SW_HIDE);
+    ShowWindow(hBtnSubBack, SW_HIDE);
+    ShowWindow(hStatusText, SW_HIDE);
+    ShowWindow(hScoreText, SW_HIDE);
+    ShowWindow(hBtnRestart, SW_HIDE);
+    ShowWindow(hBtnBackToMenu, SW_HIDE);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            ShowWindow(hGridButtons[i][j], SW_HIDE);
+        }
+    }
+}
+
+void ShowSubPage() {
+    RandomizeTextTheme();
+    ShowWindow(hBtnStartGame, SW_HIDE);
+    ShowWindow(hBtnExitApp, SW_HIDE);
+    
+    MoveWindow(hTitleText, 90, 35, 300, 50, TRUE);
+    SetWindowTextW(hTitleText, L"SELECT GAME MODE");
+    
+    ShowWindow(hBtnPvP, SW_SHOW);
+    ShowWindow(hBtnPvC, SW_SHOW);
+    ShowWindow(hBtnSubBack, SW_SHOW);
+    ShowWindow(hStatusText, SW_HIDE);
+    ShowWindow(hScoreText, SW_HIDE);
+    ShowWindow(hBtnRestart, SW_HIDE);
+    ShowWindow(hBtnBackToMenu, SW_HIDE);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            ShowWindow(hGridButtons[i][j], SW_HIDE);
+        }
+    }
+}
+
+void ShowGamePage() {
+    RandomizeTextTheme();
+    ShowWindow(hBtnStartGame, SW_HIDE);
+    ShowWindow(hBtnExitApp, SW_HIDE);
+    ShowWindow(hBtnPvP, SW_HIDE);
+    ShowWindow(hBtnPvC, SW_HIDE);
+    ShowWindow(hBtnSubBack, SW_HIDE);
+    
+    MoveWindow(hTitleText, 115, 35, 250, 50, TRUE);
+    SetWindowTextW(hTitleText, L"PLAYGROUND");
+    
+    ShowWindow(hStatusText, SW_SHOW);
+    ShowWindow(hScoreText, SW_SHOW);
+    ShowWindow(hBtnRestart, SW_SHOW);
+    ShowWindow(hBtnBackToMenu, SW_SHOW);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            ShowWindow(hGridButtons[i][j], SW_SHOW);
+        }
+    }
+}
+
+void UpdateStatusDisplay() {
+    RandomizeTextTheme(); 
+    std::wstring status;
+    if (!gameActive) {
+        status = L"Match Over! Click Restart Match";
+    } else {
+        if (turn == 'X') {
+            status = L"Current Turn: Player 1 [X]";
+        } else {
+            status = vsComputer ? L"Current Turn: Computer [O]" : L"Current Turn: Player 2 [O]";
+        }
+    }
+    SetWindowTextW(hStatusText, status.c_str());
+
+    std::wstringstream ss;
+    ss << L"Matches: " << totalGames  
+       << L"  |  X Wins: " << xWins  
+       << L"  |  O Wins: " << oWins  
+       << L"  |  Draws: " << drawGames;
+    
+    std::wstring stats = ss.str();
+    SetWindowTextW(hScoreText, stats.c_str());
+}
+
+void MakeMove(int r, int c) {
+    if (!gameActive || board[r][c] == 'X' || board[r][c] == 'O') return; 
+
+    board[r][c] = turn; 
+    cellColors[r][c] = GetRandomVibrantColor(); 
+    
+    wchar_t btnText[2] = { (wchar_t)turn, L'\0' };
+    SetWindowTextW(hGridButtons[r][c], btnText);
+    
+    InvalidateRect(hGridButtons[r][c], NULL, TRUE);
+
+    turn = (turn == 'X') ? 'O' : 'X'; 
+    
+    if (!CheckGameOverGUI()) {
+        UpdateStatusDisplay();
+        if (vsComputer && turn == 'O' && gameActive) {
+            ComputerMoveGUI();
+        }
+    }
+}
+
+void ComputerMoveGUI() {
+    int choice;
+    int randR, randC;
+    while (true) {
+        choice = (rand() % 9) + 1; 
+        switch(choice) {
+            case 1: randR=0; randC=0; break; 
+            case 2: randR=0; randC=1; break; 
+            case 3: randR=0; randC=2; break; 
+            case 4: randR=1; randC=0; break; 
+            case 5: randR=1; randC=1; break; 
+            case 6: randR=1; randC=2; break; 
+            case 7: randR=2; randC=0; break; 
+            case 8: randR=2; randC=1; break; 
+            case 9: randR=2; randC=2; break; 
+        }
+        if (board[randR][randC] != 'X' && board[randR][randC] != 'O') { 
+            MakeMove(randR, randC);
+            break;
+        }
+    }
+}
+
+bool CheckGameOverGUI() {
+    bool hasWinner = false;
+    for (int i = 0; i < 3; i++) {
+        if ((board[i][0] == board[i][1] && board[i][0] == board[i][2]) || 
+            (board[0][i] == board[1][i] && board[0][i] == board[2][i])) {
+            hasWinner = true;
+        }
+    }
+    if ((board[0][0] == board[1][1] && board[0][0] == board[2][2]) || 
+        (board[0][2] == board[1][1] && board[0][2] == board[2][0])) {
+        hasWinner = true;
+    }
+
+    if (hasWinner) {
+        gameActive = false;
+        totalGames++; 
+        
+        std::wstring resultMsg;
+        if (turn == 'O') {
+            xWins++; 
+            resultMsg = L"Player 1 [X] Wins!\nCongratulations!\n\n";
+        } else {
+            oWins++; 
+            if (vsComputer) {
+                resultMsg = L"Computer [O] Wins!\nBetter luck next time!\n\n";
+            } else {
+                resultMsg = L"Player 2 [O] Wins!\nCongratulations!\n\n"; 
+            }
+        }
+
+        std::wstringstream scoreBoard;
+        scoreBoard << resultMsg
+                   << L"\n========== SCOREBOARD ==========\n\n"
+                   << L" Total Matches Played: " << totalGames << L"\n"
+                   << L" Player 1 [X] Wins    : " << xWins << L"\n"
+                   << L" Player 2 / PC [O] Wins: " << oWins << L"\n"
+                   << L" Drawn Matches        : " << drawGames << L"\n\n"
+                   << L"==============================";
+
+        MessageBoxW(NULL, scoreBoard.str().c_str(), L"Scoreboard", MB_OK | MB_ICONINFORMATION);
+        UpdateStatusDisplay();
+        return true;
+    }
+
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            if (board[i][j] != 'X' && board[i][j] != 'O') return false; 
+        }
+    }
+
+    gameActive = false;
+    totalGames++; 
+    drawGames++; 
+
+    std::wstringstream scoreBoard;
+    scoreBoard << L"The match ended in a Draw!\n\n"
+               << L"\n========== SCOREBOARD ==========\n\n"
+               << L" Total Matches Played: " << totalGames << L"\n"
+               << L" Player 1 [X] Wins    : " << xWins << L"\n"
+               << L" Player 2 / PC [O] Wins: " << oWins << L"\n"
+               << L" Drawn Matches        : " << drawGames << L"\n\n"
+               << L"==============================";
+
+    MessageBoxW(NULL, scoreBoard.str().c_str(), L"Game Draw", MB_OK | MB_ICONINFORMATION); 
+    UpdateStatusDisplay();
+    return true;
+}
+
+void ResetGameGUI() {
+    char count = '1'; 
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            board[i][j] = count++; 
+            cellColors[i][j] = RGB(200, 200, 200); 
+            SetWindowTextW(hGridButtons[i][j], L"");
+            EnableWindow(hGridButtons[i][j], TRUE);
+            InvalidateRect(hGridButtons[i][j], NULL, TRUE);
+        }
+    }
+    turn = 'X'; 
+    gameActive = true;
+    UpdateStatusDisplay();
+}
+
+void DrawBackgroundFlowers(HDC hdc) {
+    HBRUSH hMutedPurple  = CreateSolidBrush(RGB(65, 45, 75));
+    HBRUSH hMutedBlue    = CreateSolidBrush(RGB(40, 55, 70));
+    HBRUSH hPastelPink   = CreateSolidBrush(RGB(235, 120, 175)); 
+    HBRUSH hPastelYellow = CreateSolidBrush(RGB(230, 190, 85));  
+    HBRUSH hCenterBrush  = CreateSolidBrush(RGB(90, 75, 95));
+    
+    int flowerX[] = { 40,  430, 45,  435, 240 };
+    int flowerY[] = { 50,  60,  560, 550, 250 };
+    int radii[]   = { 22,  18,  25,  20,  30  };
+
+    for (int f = 0; f < 5; f++) {
+        int cx = flowerX[f];
+        int cy = flowerY[f];
+        int r = radii[f];
+        
+        for (int i = 0; i < 6; i++) {
+            double angle = i * (3.14159 / 3.0);
+            int px = cx + static_cast<int>(cos(angle) * r);
+            int py = cy + static_cast<int>(sin(angle) * r);
+            
+            RECT petalRect = { px - r, py - r, px + r, py + r };
+            
+            if (f == 0 || f == 3) SelectObject(hdc, hPastelPink);
+            else if (f == 1) SelectObject(hdc, hPastelYellow);
+            else if (f == 2) SelectObject(hdc, hMutedPurple);
+            else SelectObject(hdc, hMutedBlue);
+
+            Ellipse(hdc, petalRect.left, petalRect.top, petalRect.right, petalRect.bottom);
+        }
+        
+        RECT centerRect = { cx - (r/2), cy - (r/2), cx + (r/2), cy + (r/2) };
+        SelectObject(hdc, hCenterBrush);
+        Ellipse(hdc, centerRect.left, centerRect.top, centerRect.right, centerRect.bottom);
+    }
+
+    DeleteObject(hMutedPurple);
+    DeleteObject(hMutedBlue);
+    DeleteObject(hPastelPink);
+    DeleteObject(hPastelYellow);
+    DeleteObject(hCenterBrush);
+}
+
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+        case WM_CREATE: {
+            srand(static_cast<unsigned int>(time(0))); 
+
+            hFontLarge = CreateFontW(36, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            hFontMedium = CreateFontW(18, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+
+            // Initializing title component with dynamic sizing properties
+            hTitleText = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_CENTER, 60, 35, 360, 50, hwnd, NULL, NULL, NULL);
+            SendMessageW(hTitleText, WM_SETFONT, (WPARAM)hFontLarge, TRUE);
+
+            hBtnStartGame = CreateWindowW(L"BUTTON", L"1. Start Match", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 100, 180, 280, 60, hwnd, (HMENU)11, NULL, NULL);
+            hBtnExitApp = CreateWindowW(L"BUTTON", L"2. Exit Game", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 100, 280, 280, 60, hwnd, (HMENU)12, NULL, NULL);
+            SendMessageW(hBtnStartGame, WM_SETFONT, (WPARAM)hFontMedium, TRUE);
+            SendMessageW(hBtnExitApp, WM_SETFONT, (WPARAM)hFontMedium, TRUE);
+
+            hBtnPvP = CreateWindowW(L"BUTTON", L"Play Against Friend", WS_CHILD | BS_PUSHBUTTON, 100, 160, 280, 55, hwnd, (HMENU)101, NULL, NULL);
+            hBtnPvC = CreateWindowW(L"BUTTON", L"Play Against Computer", WS_CHILD | BS_PUSHBUTTON, 100, 240, 280, 55, hwnd, (HMENU)102, NULL, NULL);
+            hBtnSubBack = CreateWindowW(L"BUTTON", L"Back to Main Menu", WS_CHILD | BS_PUSHBUTTON, 100, 320, 280, 55, hwnd, (HMENU)103, NULL, NULL);
+            SendMessageW(hBtnPvP, WM_SETFONT, (WPARAM)hFontMedium, TRUE);
+            SendMessageW(hBtnPvC, WM_SETFONT, (WPARAM)hFontMedium, TRUE);
+            SendMessageW(hBtnSubBack, WM_SETFONT, (WPARAM)hFontMedium, TRUE);
+
+            hStatusText = CreateWindowW(L"STATIC", L"", WS_CHILD | SS_CENTER, 20, 95, 440, 30, hwnd, NULL, NULL, NULL);
+            SendMessageW(hStatusText, WM_SETFONT, (WPARAM)hFontMedium, TRUE);
+            
+            for (int i = 0; i < 3; i++) {
+                for (int j = 0; j < 3; j++) {
+                    int buttonID = 1 + (i * 3) + j;
+                    cellColors[i][j] = RGB(200, 200, 200);
+                    hGridButtons[i][j] = CreateWindowW(L"BUTTON", L"", WS_CHILD | BS_PUSHBUTTON | BS_OWNERDRAW, 60 + (j * 115), 135 + (i * 115), 110, 110, hwnd, (HMENU)(INT_PTR)buttonID, NULL, NULL);
+                }
+            }
+
+            hScoreText = CreateWindowW(L"STATIC", L"", WS_CHILD | SS_CENTER, 10, 490, 460, 30, hwnd, NULL, NULL, NULL);
+            SendMessageW(hScoreText, WM_SETFONT, (WPARAM)hFontMedium, TRUE);
+            
+            hBtnRestart = CreateWindowW(L"BUTTON", L"Restart Match", WS_CHILD | BS_PUSHBUTTON, 60, 530, 160, 40, hwnd, (HMENU)201, NULL, NULL);
+            hBtnBackToMenu = CreateWindowW(L"BUTTON", L"Return to Menu", WS_CHILD | BS_PUSHBUTTON, 260, 530, 160, 40, hwnd, (HMENU)202, NULL, NULL);
+            SendMessageW(hBtnRestart, WM_SETFONT, (WPARAM)hFontMedium, TRUE);
+            SendMessageW(hBtnBackToMenu, WM_SETFONT, (WPARAM)hFontMedium, TRUE);
+
+            ShowMainPage();
+            break;
+        }
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            FillRect(hdc, &rc, hBackBrush);
+            
+            DrawBackgroundFlowers(hdc);
+            
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_DRAWITEM: {
+            LPDRAWITEMSTRUCT pDIS = (LPDRAWITEMSTRUCT)lp;
+            int btnID = (int)pDIS->CtlID;
+            
+            if (btnID >= 1 && btnID <= 9) {
+                int idx = btnID - 1;
+                int r = idx / 3;
+                int c = idx % 3;
+                
+                HBRUSH hBtnBrush = CreateSolidBrush(RGB(38, 32, 48));
+                FillRect(pDIS->hDC, &pDIS->rcItem, hBtnBrush);
+                DeleteObject(hBtnBrush);
+                
+                HPEN hPen = CreatePen(PS_SOLID, 2, RGB(85, 70, 105));
+                HGDIOBJ hOldPen = SelectObject(pDIS->hDC, hPen);
+                MoveToEx(pDIS->hDC, 0, 0, NULL);
+                LineTo(pDIS->hDC, pDIS->rcItem.right, 0);
+                LineTo(pDIS->hDC, pDIS->rcItem.right, pDIS->rcItem.bottom);
+                LineTo(pDIS->hDC, 0, pDIS->rcItem.bottom);
+                LineTo(pDIS->hDC, 0, 0);
+                
+                wchar_t textBuffer[3];
+                GetWindowTextW(pDIS->hwndItem, textBuffer, 3);
+                
+                if (textBuffer[0] == L'X' || textBuffer[0] == L'O') {
+                    SetTextColor(pDIS->hDC, cellColors[r][c]);
+                    SetBkMode(pDIS->hDC, TRANSPARENT);
+                    SelectObject(pDIS->hDC, hFontLarge);
+                    DrawTextW(pDIS->hDC, textBuffer, -1, &pDIS->rcItem, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                }
+                
+                SelectObject(pDIS->hDC, hOldPen);
+                DeleteObject(hPen);
+                return TRUE;
+            }
+            break;
+        }
+        case WM_COMMAND: {
+            int wmId = LOWORD(wp);
+            
+            if (wmId == 11) { 
+                ShowSubPage();
+                InvalidateRect(hwnd, NULL, TRUE);
+            }
+            else if (wmId == 12) { 
+                PostQuitMessage(0); 
+            }
+            else if (wmId == 101) { 
+                vsComputer = false; 
+                ShowGamePage();
+                ResetGameGUI();
+                InvalidateRect(hwnd, NULL, TRUE);
+            }
+            else if (wmId == 102) { 
+                vsComputer = true; 
+                ShowGamePage();
+                ResetGameGUI();
+                InvalidateRect(hwnd, NULL, TRUE);
+            }
+            else if (wmId == 103) { 
+                ShowMainPage();
+                InvalidateRect(hwnd, NULL, TRUE);
+            }
+            else if (wmId == 201) {
+                ResetGameGUI();
+                InvalidateRect(hwnd, NULL, TRUE);
+            }
+            else if (wmId == 202) {
+                gameActive = false;
+                ShowSubPage();
+                InvalidateRect(hwnd, NULL, TRUE);
+            }
+            else if (wmId >= 1 && wmId <= 9) {
+                int btnIndex = wmId - 1;
+                MakeMove(btnIndex / 3, btnIndex % 3);
+            }
+            break;
+        }
+        case WM_CTLCOLORSTATIC: {
+            HDC hdcStatic = (HDC)wp;
+            SetTextColor(hdcStatic, currentTextThemeColor); 
+            SetBkMode(hdcStatic, TRANSPARENT);     
+            return (INT_PTR)hBackBrush;
+        }
+        case WM_DESTROY: {
+            DeleteObject(hBackBrush);
+            DeleteObject(hFontLarge);
+            DeleteObject(hFontMedium);
+            PostQuitMessage(0);
+            break;
+        }
+        default:
+            return DefWindowProcW(hwnd, msg, wp, lp);
+    }
+    return 0;
+}
+
+int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrevInst, LPSTR args, int ncmdshow) {
+    WNDCLASSW wc = {0};
+    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.hbrBackground = hBackBrush;
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hInstance = hInst;
+    wc.lpszClassName = L"TicTacToeWindowClass";
+    wc.lpfnWndProc = WndProc;
+
+    if (!RegisterClassW(&wc)) return -1;
+
+    HWND hwnd = CreateWindowW(L"TicTacToeWindowClass", L"Tic-Tac-Toe", WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX, 400, 100, 495, 630, NULL, NULL, hInst, NULL);
+    ShowWindow(hwnd, ncmdshow);
+    UpdateWindow(hwnd);
+
+    MSG msg = {0};
+    while (GetMessageW(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+    return 0;
+}
